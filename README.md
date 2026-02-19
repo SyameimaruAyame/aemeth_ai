@@ -50,6 +50,7 @@ SERPER_API_KEY	Serper API Key（用于联网搜索，可选）	serper.dev
 
 ## 设置环境变量示例（Linux/macOS）
    export DASHSCOPE_API_KEY="你的key"
+
    export SERPER_API_KEY="你的key"   # 若不设置，则禁用联网搜索
 
 如果使用 systemd 或 Docker，请参照相应方式配置环境变量。
@@ -123,4 +124,4 @@ A：一个插件实例只能固定一个角色。如需多角色，可复制插�
 
 ## 💬 反馈与贡献
 欢迎提交 Issues 或 Pull Requests
-一起让这个小插件变得更好！
+还在不断优化中，一起让这个小插件变得更好！
