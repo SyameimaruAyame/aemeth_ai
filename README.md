@@ -30,11 +30,11 @@
 
 2. **克隆本插件**
    ```bash
-git clone https://github.com/SyameimaruAyame/aemeth_ai.git
+   git clone https://github.com/SyameimaruAyame/aemeth_ai.git
 
 2. **安装依赖**
    ```bash
-pip install -r aemeth_ai/requirements.txt
+   pip install -r aemeth_ai/requirements.txt
 
 重启 gsuid-core
 
@@ -49,8 +49,8 @@ SERPER_API_KEY	Serper API Key（用于联网搜索，可选）	serper.dev
 
 设置环境变量示例（Linux/macOS）
    ```bash
-export DASHSCOPE_API_KEY="你的key"
-export SERPER_API_KEY="你的key"   # 若不设置，则禁用联网搜索
+   export DASHSCOPE_API_KEY="你的key"
+   export SERPER_API_KEY="你的key"   # 若不设置，则禁用联网搜索
 如果使用 systemd 或 Docker，请参照相应方式配置环境变量。
 
 🎮 使用示例
