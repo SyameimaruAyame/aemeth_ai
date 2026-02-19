@@ -38,7 +38,8 @@
 
 重启 gsuid-core
 
-🔑 配置
+##🔑 配置
+
 插件需要两个 API Key（均提供免费额度），请通过环境变量设置，切勿直接修改代码。
 
 环境变量	说明	获取地址
@@ -47,13 +48,13 @@ DASHSCOPE_API_KEY	阿里云 DashScope API Key（用于大模型）	阿里云百�
 
 SERPER_API_KEY	Serper API Key（用于联网搜索，可选）	serper.dev
 
-设置环境变量示例（Linux/macOS）
-   ```bash
+##设置环境变量示例（Linux/macOS）
    export DASHSCOPE_API_KEY="你的key"
    export SERPER_API_KEY="你的key"   # 若不设置，则禁用联网搜索
+
 如果使用 systemd 或 Docker，请参照相应方式配置环境变量。
 
-🎮 使用示例
+##🎮 使用示例
 直接呼唤
 在群里发送“小爱今天天气怎么样”，机器人会自动搜索并回答。
 
@@ -91,7 +92,7 @@ system_prompt = """你是一个活跃在QQ群的AI助手，你的角色是《原
 3. **语气活泼**，一句话不超过20字。"""
 修改后保存文件并重启 core 即可生效。
 
-⚙️ 高级配置
+##⚙️ 高级配置
 在 __init__.py 中可以调整以下参数（位于文件开头的 ACTIVE_CONFIG 字典中）：
 
 参数	说明	默认值
@@ -104,7 +105,7 @@ enable_quality_filter	是否启用质量过滤	true
 enable_web_search	是否启用联网搜索	true
 不建议无经验用户随意修改，调整前请先备份。
 
-❓ 常见问题
+##❓ 常见问题
 Q：为什么机器人不说话？
 A：插件设有严格的质量门槛，只有当模型认为有高质量回复时才发言。你可适当降低 intent_confidence_threshold 和 quality_threshold 来提高活跃度。
 
@@ -117,9 +118,9 @@ A：不设置 SERPER_API_KEY 或将 enable_web_search 设为 false。
 Q：可以同时用多个角色吗？
 A：一个插件实例只能固定一个角色。如需多角色，可复制插件文件夹，分别修改 system_prompt 并赋予不同 SV 名称。
 
-📄 许可证
+##📄 许可证
 本项目采用 MIT 许可证。
 
-💬 反馈与贡献
+##💬 反馈与贡献
 欢迎提交 Issues 或 Pull Requests
 一起让这个小插件变得更好！
