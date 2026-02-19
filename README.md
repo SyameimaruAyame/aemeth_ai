@@ -1,9 +1,9 @@
 # 🌊 爱弥斯 AI 角色对话插件 (aemeth_ai)
 
-🚧支持QQ群/频道、OneBot、微信、KOOK、Tg、飞书、DoDo、米游社、Discord的股票Bot插件🚧
-安装文档
+🚧支持QQ群/频道、OneBot、微信、KOOK、Tg、飞书、DoDo、米游社、Discord的股票Bot插件
+🚧[安装文档](https://docs.sayu-bot.com/)
 丨安装提醒
-注意：该插件为早柚核心(gsuid_core)的扩展，具体安装方式可参考GenshinUID
+注意：该插件为早柚核心(gsuid_core)的扩展，具体安装方式可参考[GenshinUID](https://github.com/KimigaiiWuyi/GenshinUID)
 
 支持NoneBot2 & HoshinoBot & ZeroBot & YunzaiBot & Koishi的AI 角色对话插件)
 
@@ -27,27 +27,28 @@
 1. **进入 gsuid-core 插件目录**  
    ```bash
    cd /path/to/gsuid_core/gsuid_core/plugins
-克隆本插件
 
-bash
+2. **克隆本插件**
+   ```bash
 git clone https://github.com/SyameimaruAyame/aemeth_ai.git
-安装依赖
 
-bash
+2. **安装依赖**
+   ```bash
 pip install -r aemeth_ai/requirements.txt
-重启 gsuid-core
-在 core 的 screen 会话中按 Ctrl+C 停止，然后重新运行：
 
-bash
-uv run core
+重启 gsuid-core
+
 🔑 配置
 插件需要两个 API Key（均提供免费额度），请通过环境变量设置，切勿直接修改代码。
 
 环境变量	说明	获取地址
+
 DASHSCOPE_API_KEY	阿里云 DashScope API Key（用于大模型）	阿里云百炼
+
 SERPER_API_KEY	Serper API Key（用于联网搜索，可选）	serper.dev
+
 设置环境变量示例（Linux/macOS）
-bash
+   ```bash
 export DASHSCOPE_API_KEY="你的key"
 export SERPER_API_KEY="你的key"   # 若不设置，则禁用联网搜索
 如果使用 systemd 或 Docker，请参照相应方式配置环境变量。
