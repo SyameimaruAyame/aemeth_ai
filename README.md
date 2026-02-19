@@ -97,13 +97,21 @@ system_prompt = """你是一个活跃在QQ群的AI助手，你的角色是《原
 在 __init__.py 中可以调整以下参数（位于文件开头的 ACTIVE_CONFIG 字典中）：
 
 参数	说明	默认值
+
 base_trigger_prob	主动发言概率 (0~1)	0.005
+
 cooldown	主动发言冷却（秒）	300
+
 intent_confidence_threshold	意图判断置信度（越高越保守）	0.8
+
 quality_threshold	质量评分阈值（越高越严格）	0.7
+
 enable_intent_filter	是否启用意图判断	true
+
 enable_quality_filter	是否启用质量过滤	true
+
 enable_web_search	是否启用联网搜索	true
+
 不建议无经验用户随意修改，调整前请先备份。
 
 ## ❓ 常见问题
