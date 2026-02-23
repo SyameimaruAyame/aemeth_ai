@@ -1,11 +1,15 @@
+<p align="center">
+  <img src="[https://i0.hdslb.com/bfs/face/3e0e929e4b3d6f32c553e4a7f52f975bd9a2d939.jpg@128w_128h_1c_1s.webp]" width="120" alt="爱弥斯头像">
+</p>
+
 # 🌊 爱弥斯 AI 角色对话插件 (aemeth_ai)
 
-🚧支持QQ群/频道、OneBot、微信、KOOK、Tg、飞书、DoDo、米游社、Discord的股票Bot插件
-🚧[安装文档](https://docs.sayu-bot.com/)
+🚧 支持 QQ 群/频道、OneBot、微信、KOOK、Tg、飞书、DoDo、米游社、Discord 的 Bot 插件
+🚧 [安装文档](https://docs.sayu-bot.com/)
 丨安装提醒
-注意：该插件为早柚核心(gsuid_core)的扩展，具体安装方式可参考[GenshinUID](https://github.com/KimigaiiWuyi/GenshinUID)
+注意：该插件为早柚核心 (gsuid_core) 的扩展，具体安装方式可参考 [GenshinUID](https://github.com/KimigaiiWuyi/GenshinUID)
 
-支持NoneBot2 & HoshinoBot & ZeroBot & YunzaiBot & Koishi的AI 角色对话插件)
+支持 NoneBot2 & HoshinoBot & ZeroBot & YunzaiBot & Koishi 的 AI 角色对话插件
 
 一个为 [gsuid-core](https://github.com/KimigaiiWuyi/gsuid-core) 设计的 AI 文字对话插件。  
 让机器人以《鸣潮》角色「爱弥斯」的风格与群友互动，支持自定义角色、智能问答和联网搜索。
@@ -19,6 +23,16 @@
 - **🔍 联网搜索（可选）**：通过 Serper API 获取最新信息，回答“今天天气”“金价多少”等实时问题。
 - **📉 低频率高质量**：内置意图判断和质量过滤，只在有意义时发言，避免刷屏。
 - **📦 即插即用**：复制到 gsuid-core 插件目录即可使用。
+
+---
+
+## 🗣️ 推荐联动：全局语音插件 (voice_reply)
+
+推荐配合使用插件——[**全局语音插件**](https://github.com/SyameimaruAyame/voice_reply)。
+
+*   **作用**：该插件会在本地查找与回复文本匹配的语音文件并发送，让机器人真正“发出声音”。
+*   **搭配效果**：`aemeth_ai` 负责生成智能、有趣的文字回复，`voice_reply` 负责将回复“读”出来，两者结合能极大提升群内互动的真实感和趣味性。
+*   **使用方式**：只需将 `voice_reply` 也放入 gsuid-core 的插件目录，它会自动工作。当 `aemeth_ai` 生成回复后，如果语音库中有对应的音频，就会优先发送语音。
 
 ---
 
@@ -40,20 +54,37 @@
 
 ## 🔑 配置
 
-插件需要两个 API Key（均提供免费额度），请通过环境变量设置，切勿直接修改代码。
+插件使用 **DeepSeek** 大模型（通过 OpenAI SDK 调用），并支持可选的联网搜索功能。**所有 API Key 均需直接在插件代码中填写**，请勿分享包含密钥的代码。
 
-环境变量	说明	获取地址
+### 1. 获取 API Key
 
-DASHSCOPE_API_KEY	阿里云 DashScope API Key（用于大模型）	阿里云百炼
+| 服务 | 用途 | 获取地址 |
+| :--- | :--- | :--- |
+| **DeepSeek** | 大模型对话（必需） | [platform.deepseek.com](https://platform.deepseek.com/) |
+| **Serper** | 联网搜索（可选） | [serper.dev](https://serper.dev) |
 
-SERPER_API_KEY	Serper API Key（用于联网搜索，可选）	serper.dev
+### 2. 在插件中填写 Key
 
-## 设置环境变量示例（Linux/macOS）
-   export DASHSCOPE_API_KEY="你的key"
+1. 打开插件文件 `aemeth_ai/__init__.py`。
+2. 找到文件开头附近的**配置区**，你会看到如下代码：
 
-   export SERPER_API_KEY="你的key"   # 若不设置，则禁用联网搜索
+   ```python
+   # DeepSeek API 配置（直接填入你的 Key）
+   DEEPSEEK_API_KEY = "你的DeepSeek API密钥"  # 替换为你的实际 Key
+   deepseek_client = openai.OpenAI(
+       api_key=DEEPSEEK_API_KEY,
+       base_url="https://api.deepseek.com/v1"
+   )
 
-如果使用 systemd 或 Docker，请参照相应方式配置环境变量。
+   # Serper API Key（可选，如果需要联网搜索就填）
+   SERPER_API_KEY = "你的Serper API密钥"  # 替换为你的实际 Key，不需要则留空
+
+### 3. 替换其他 API 模型（进阶）
+如果你希望使用其他模型（如 OpenAI 的 GPT、阿里云的通义千问等），可按以下方式修改：
+
+修改模型名称：在 __init__.py 中找到 MODELS 字典，将 "cheap" 和 "smart" 对应的值改为目标模型（例如 "gpt-4o-mini"、"qwen-plus"）。
+
+调整客户端配置：目前 deepseek_client 基于 OpenAI SDK 实现。如果其他 API 兼容 OpenAI SDK，只需修改 base_url 和 api_key 即可；若不兼容，则需要重写 call_llm 函数中的调用逻辑。
 
 ## 🎮 使用示例
 直接呼唤
