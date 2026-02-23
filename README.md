@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="[https://i0.hdslb.com/bfs/face/3e0e929e4b3d6f32c553e4a7f52f975bd9a2d939.jpg@128w_128h_1c_1s.webp]" width="120" alt="爱弥斯头像">
+  <img src=[https://raw.githubusercontent.com/SyameimaruAyame/images/blob/main/feixinxueron.png]" width="120" alt="爱弥斯头像">
 </p>
 
 # 🌊 爱弥斯 AI 角色对话插件 (aemeth_ai)
