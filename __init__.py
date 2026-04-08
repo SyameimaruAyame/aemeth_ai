@@ -32,7 +32,7 @@ import os
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")  # 替换为你的实际 Key
 deepseek_client = OpenAI(
     api_key=DEEPSEEK_API_KEY,
-    base_url="https://api.deepseek.com/v1"
+    base_url="https://api.deepseek.com/v1/chat/completions"
 )
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")            # 必须设置你的 Serper API Key（否则无法联网搜索）
 # 模型选择
@@ -84,7 +84,7 @@ recent_replies = deque(maxlen=10)  # 用于语义重复检测
 # ==================== 通用LLM调用函数 ====================
 async def call_llm(messages: List[Dict], model: str = "deepseek-reasoner", temperature: float = 0.6,
                    response_format: Optional[Dict] = None, max_tokens: Optional[int] = None) -> Optional[str]:
-    url = "https://api.deepseek.com/v1"
+    url = "https://api.deepseek.com/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
