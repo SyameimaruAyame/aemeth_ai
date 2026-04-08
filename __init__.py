@@ -14,6 +14,8 @@ import random
 import time
 import json
 import difflib
+import os
+from openai import OpenAI
 from collections import deque
 from pathlib import Path
 from typing import Optional, Dict, List, Any
@@ -26,12 +28,17 @@ from gsuid_core.logger import logger
 
 # ==================== 配置区 ====================
 import os
-DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")      # 必须设置你的阿里云 DashScope API Key
+# DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")      # 必须设置你的阿里云 DashScope API Key
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")  # 替换为你的实际 Key
+deepseek_client = OpenAI(
+    api_key=DEEPSEEK_API_KEY,
+    base_url="https://api.deepseek.com/v1"
+)
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")            # 必须设置你的 Serper API Key（否则无法联网搜索）
 # 模型选择
 MODELS = {
-    "cheap": "qwen-turbo",      # 意图判断、摘要、评分
-    "smart": "qwen-plus",       # 回复生成
+    "cheap": "deepseek-chat",      # 意图判断、摘要、评分
+    "smart": "deepseek-reasoner",       # 回复生成
 }
 
 # 主动模式配置（优化版：极低频率，高置信度）
@@ -75,11 +82,11 @@ group_cache: Dict[int, Dict[str, Any]] = {}
 recent_replies = deque(maxlen=10)  # 用于语义重复检测
 
 # ==================== 通用LLM调用函数 ====================
-async def call_llm(messages: List[Dict], model: str = "qwen-plus", temperature: float = 0.6,
+async def call_llm(messages: List[Dict], model: str = "deepseek-reasoner", temperature: float = 0.6,
                    response_format: Optional[Dict] = None, max_tokens: Optional[int] = None) -> Optional[str]:
-    url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    url = "https://api.deepseek.com/v1"
     headers = {
-        "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
     payload = {
@@ -356,10 +363,7 @@ async def generate_at_reply(messages: List[Dict], current_msg: str, user_name: s
 # ==================== 发送文字消息 ====================
 async def send_text_to_group(group_id: int, text: str):
     async with aiohttp.ClientSession() as session:
-        await session.post(
-            "http://127.0.0.1:5700/send_group_msg",
-            json={"group_id": group_id, "message": text}
-        )
+        await call_bot().send(" " + text , group_id)
     logger.info(f"[小爱] 已向群 {group_id} 发送文字: {text}")
 
 # ==================== 主动回复后台任务 ====================
