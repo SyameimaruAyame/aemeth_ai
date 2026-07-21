@@ -56,7 +56,7 @@
 
 ## 🔑 配置
 
-插件使用 **DeepSeek** 大模型（通过 OpenAI SDK 调用），并支持可选的联网搜索功能。**所有 API Key 均需直接在插件代码中填写**，请勿分享包含密钥的代码。
+插件使用 **DeepSeek** 大模型（OpenAI 兼容接口，通过 aiohttp 直接调用），并支持可选的联网搜索功能。API Key 支持**环境变量**或**直接在代码中填写**两种方式，请勿分享包含密钥的代码。
 
 ### 1. 获取 API Key
 
@@ -65,28 +65,47 @@
 | **DeepSeek** | 大模型对话（必需） | [platform.deepseek.com](https://platform.deepseek.com/) |
 | **Serper** | 联网搜索（可选） | [serper.dev](https://serper.dev) |
 
-### 2. 在插件中填写 Key
+### 2. 配置 Key
 
-1. 打开插件文件 `aemeth_ai/__init__.py`。
-2. 找到文件开头附近的**配置区**，你会看到如下代码：
+**方式一：环境变量（推荐，Docker 部署尤其方便）**
 
-   ```python
-   # DeepSeek API 配置（直接填入你的 Key）
-   DEEPSEEK_API_KEY = "你的DeepSeek API密钥"  # 替换为你的实际 Key
-   deepseek_client = openai.OpenAI(
-       api_key=DEEPSEEK_API_KEY,
-       base_url="https://api.deepseek.com/v1"
-   )
+```bash
+export DEEPSEEK_API_KEY="sk-你的DeepSeek密钥"
+export SERPER_API_KEY="你的Serper密钥"   # 可选
+```
 
-   # Serper API Key（可选，如果需要联网搜索就填）
-   SERPER_API_KEY = "你的Serper API密钥"  # 替换为你的实际 Key，不需要则留空
+**方式二：直接改代码**
 
-### 3. 替换其他 API 模型
+打开 `aemeth_ai/__init__.py`，找到文件开头的**配置区**：
+
+```python
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # 引号内直接填 "sk-xxx" 也可以
+SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")      # 可选，不需要联网搜索就留空
+```
+
+### 3. OneBot 消息发送地址（重要）
+
+插件通过 **OneBot v11 HTTP API**（go-cqhttp / NapCat / LLOneBot 等，默认端口 `5700`）向群里发消息，地址由 `ONEBOT_API_URL` 控制：
+
+| 部署方式 | 推荐配置 |
+| :--- | :--- |
+| 插件和 QQ 框架在同一台机器 | 默认 `http://127.0.0.1:5700`，不用改 |
+| 插件在 Docker 里，QQ 框架在宿主机 | `http://host.docker.internal:5700`（Linux 需加 `--add-host=host.docker.internal:host-gateway`） |
+| 插件和 QQ 框架在同一 docker network | `http://<QQ框架容器名>:5700` |
+
+可用环境变量配置，无需改代码：
+
+```bash
+export ONEBOT_API_URL="http://host.docker.internal:5700"
+```
+
+> 如果你压根没有运行 go-cqhttp / NapCat / LLOneBot 这类 OneBot 服务，机器人能生成回复但**发不出去**，日志里会有发送失败的报错提示。
+
+### 4. 替换其他 API 模型
 如果你希望使用其他模型（如 OpenAI 的 GPT、阿里云的通义千问等），可按以下方式修改：
 
-修改模型名称：在 __init__.py 中找到 MODELS 字典，将 "cheap" 和 "smart" 对应的值改为目标模型（例如 "gpt-4o-mini"、"qwen-plus"）。
-
-调整客户端配置：目前 deepseek_client 基于 OpenAI SDK 实现。如果其他 API 兼容 OpenAI SDK，只需修改 base_url 和 api_key 即可；若不兼容，则需要重写 call_llm 函数中的调用逻辑。
+1. 修改模型名称：在 `__init__.py` 中找到 `MODELS` 字典，将 `"cheap"` 和 `"smart"` 对应的值改为目标模型（例如 `"gpt-4o-mini"`、`"qwen-plus"`）。
+2. 修改接口地址：把 `DEEPSEEK_BASE_URL` 改成目标服务的 OpenAI 兼容地址（例如通义千问为 `https://dashscope.aliyuncs.com/compatible-mode/v1`），并替换成对应的 API Key。
 
 ## 🎮 使用示例
 直接呼唤
@@ -198,7 +217,7 @@ enable_web_search	是否启用联网搜索	true
 ## ❓ 常见问题
 
 **Q：为什么机器人不说话？**  
-A：插件设有严格的质量门槛，只有当模型认为有高质量回复时才发言。你可适当降低 `intent_confidence_threshold` 和 `quality_threshold` 来提高活跃度。
+A：插件设有严格的质量门槛，只有当模型认为有高质量回复时才发言。你可适当降低 `intent_confidence_threshold` 和 `quality_threshold` 来提高活跃度。如果日志里能看到「决定回复」但群里没消息，说明 OneBot 发送失败，请检查 `ONEBOT_API_URL` 配置（Docker 用户见上方配置说明第 3 节）。
 
 **Q：如何让机器人更活跃？**  
 A：调高 `base_trigger_prob`（如 0.02）并缩短 `cooldown`（如 60），或切换到自由模式。
