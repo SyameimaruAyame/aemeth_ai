@@ -7,6 +7,16 @@
 - 严格质量过滤，确保回复有意义
 - 保留原有意图判断、摘要、冷却、重复检测等机制
 自称：小爱
+
+v4.2 更新：
+- 大模型统一为 DeepSeek（OpenAI 兼容接口）
+- 发送消息增加超时与异常处理，后台任务不再因网络问题崩溃
+
+v4.3 更新：
+- 发送消息改为复用 gsuid_core 的 Bot 通道（WS），修复 NapCat 部署下
+  直连 OneBot HTTP 端口导致 404、回复发不到群里的问题
+- 每个群的 Bot 实例会被缓存，供后台主动发言复用同一条连接
+- ONEBOT_API_URL 改为可选兜底，默认留空即关闭 HTTP 发送
 """
 
 import asyncio
@@ -15,7 +25,7 @@ import time
 import json
 import difflib
 from collections import deque
-from pathlib import Path
+
 from typing import Optional, Dict, List, Any
 
 import aiohttp
@@ -26,13 +36,25 @@ from gsuid_core.logger import logger
 
 # ==================== 配置区 ====================
 import os
-DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")      # 必须设置你的阿里云 DashScope API Key
-SERPER_API_KEY = os.getenv("SERPER_API_KEY")            # 必须设置你的 Serper API Key（否则无法联网搜索）
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+# Serper API Key（可选）：不填则关闭联网搜索
+SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+
+# DeepSeek API 地址（OpenAI 兼容接口）
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 # 模型选择
 MODELS = {
-    "cheap": "qwen-turbo",      # 意图判断、摘要、评分
-    "smart": "qwen-plus",       # 回复生成
+    "cheap": "deepseek-chat",      # 意图判断、摘要、评分
+    "smart": "deepseek-chat",       # 回复生成
 }
+# !!! 重要 !!!
+# 正常情况下【不需要】配置这个。插件会直接复用 gsuid_core 当前已连接的 Bot（WS/反向WS）来发消息，
+# 这是 NapCat / LLOneBot / go-cqhttp 等所有 OneBot 实现通用的方式。
+# 只有“拿不到 Bot 对象、必须走独立 HTTP”的特殊情况才需要设置环境变量 ONEBOT_API_URL，
+# 例如 http://127.0.0.1:3000（NapCat 的 HTTP 服务器端口，需在 NapCat 网络配置里自行开启并放行）。
+# 留空 = 关闭 HTTP 发送，避免把消息 POST 到错误端口后拿到 404。
+ONEBOT_API_URL = os.getenv("ONEBOT_API_URL", "").rstrip("/")
+
 
 # 主动模式配置（优化版：极低频率，高置信度）
 ACTIVE_CONFIG = {
@@ -54,7 +76,7 @@ ACTIVE_CONFIG = {
 }
 
 # 被@回复冷却时间（秒）
-AT_REPLY_COOLDOWN = 60
+AT_REPLY_COOLDOWN = 10
 
 # 游戏话题关键词（精简版，保留核心）
 GAME_KEYWORDS = [
@@ -75,15 +97,19 @@ group_cache: Dict[int, Dict[str, Any]] = {}
 recent_replies = deque(maxlen=10)  # 用于语义重复检测
 
 # ==================== 通用LLM调用函数 ====================
-async def call_llm(messages: List[Dict], model: str = "qwen-plus", temperature: float = 0.6,
+async def call_llm(messages: List[Dict], model: Optional[str] = None, temperature: float = 0.6,
                    response_format: Optional[Dict] = None, max_tokens: Optional[int] = None) -> Optional[str]:
-    url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    if not DEEPSEEK_API_KEY:
+        logger.error("[小爱] 未配置 DEEPSEEK_API_KEY，无法调用大模型")
+        return None
+
+    url = f"{DEEPSEEK_BASE_URL}/chat/completions"
     headers = {
-        "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
     payload = {
-        "model": model,
+        "model": model or MODELS["smart"],
         "messages": messages,
         "temperature": temperature,
     }
@@ -93,14 +119,18 @@ async def call_llm(messages: List[Dict], model: str = "qwen-plus", temperature: 
         payload["response_format"] = response_format
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload, timeout=15) as resp:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     result = await resp.json()
                     return result["choices"][0]["message"]["content"].strip()
                 else:
                     logger.error(f"LLM调用失败 {resp.status}: {await resp.text()}")
                     return None
+    except asyncio.TimeoutError:
+        logger.error("LLM调用超时")
+        return None
     except Exception as e:
         logger.error(f"LLM异常: {e}")
         return None
@@ -108,7 +138,7 @@ async def call_llm(messages: List[Dict], model: str = "qwen-plus", temperature: 
 # ==================== Serper 搜索函数 ====================
 async def search_game_info(query: str) -> Optional[str]:
     if not SERPER_API_KEY:
-        logger.error("未设置 SERPER_API_KEY")
+        logger.warning("未设置 SERPER_API_KEY，跳过联网搜索")
         return None
 
     url = "https://google.serper.dev/search"
@@ -124,8 +154,9 @@ async def search_game_info(query: str) -> Optional[str]:
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload, timeout=10) as resp:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     organic = data.get("organic", [])
@@ -212,8 +243,9 @@ async def check_reply_intent(messages: List[Dict]) -> tuple[bool, str, float]:
         return False, "意图判断失败", 0.0
     try:
         result = json.loads(content)
-        return result["should"], result["reason"], result["confidence"]
-    except:
+        return bool(result["should"]), str(result["reason"]), float(result["confidence"])
+    except Exception as e:
+        logger.warning(f"[小爱] 意图判断结果解析失败: {e}")
         return False, "解析失败", 0.0
 
 # ==================== 对话摘要 ====================
@@ -264,8 +296,8 @@ async def evaluate_reply_quality(reply: str, context_summary: str, messages: Lis
         return 0.5
     try:
         result = json.loads(content)
-        return result.get("score", 0.5)
-    except:
+        return float(result.get("score", 0.5))
+    except Exception:
         return 0.5
 
 # ==================== 回复生成（集成搜索） ====================
@@ -279,11 +311,11 @@ async def generate_reply_with_context(messages: List[Dict], trigger_reason: str,
 
     # 搜索上下文（仅当游戏话题时进行）
     search_context = None
-    if is_game_topic:
+    if is_game_topic and ACTIVE_CONFIG["enable_web_search"]:
         search_result = await search_game_info(last_msg)
         if search_result:
             search_context = f"\n【以下是从网上搜索到的相关信息，请参考】\n{search_result}\n"
-            logger.info(f"[小爱] 为游戏问题获取到搜索结果")
+            logger.info("[小爱] 为游戏问题获取到搜索结果")
 
     # 爱弥斯系统设定
     system_prompt = """你是一个活跃在QQ群的AI助手，你的角色是《鸣潮》3.1版本中的“爱弥斯”，喜欢自称“小爱”。
@@ -354,13 +386,64 @@ async def generate_at_reply(messages: List[Dict], current_msg: str, user_name: s
     )
 
 # ==================== 发送文字消息 ====================
-async def send_text_to_group(group_id: int, text: str):
-    async with aiohttp.ClientSession() as session:
-        await session.post(
-            "http://127.0.0.1:5700/send_group_msg",
-            json={"group_id": group_id, "message": text}
-        )
-    logger.info(f"[小爱] 已向群 {group_id} 发送文字: {text}")
+# 每个群最近一次消息事件对应的 Bot 实例。
+# 主动发言发生在后台任务里，没有当前事件可用，所以这里缓存下来复用同一条连接。
+_group_bots: Dict[str, "Bot"] = {}
+
+
+def remember_bot(group_id: str, bot: "Bot") -> None:
+    """记录某个群当前可用的 Bot，供后台主动发言复用"""
+    if group_id:
+        _group_bots[str(group_id)] = bot
+
+
+async def _send_via_onebot_http(group_id: str, text: str) -> bool:
+    """兜底方案：直接调用 OneBot v11 HTTP API（仅在设置了 ONEBOT_API_URL 时启用）"""
+    url = f"{ONEBOT_API_URL}/send_group_msg"
+    try:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                url, json={"group_id": int(group_id), "message": text}
+            ) as resp:
+                if resp.status == 200:
+                    logger.info(f"[小爱] 已通过 HTTP 向群 {group_id} 发送文字: {text}")
+                    return True
+                logger.error(
+                    f"[小爱] HTTP 发送失败 {resp.status}: {await resp.text()} "
+                    f"(地址 {ONEBOT_API_URL}，请确认它是 NapCat 的 HTTP 服务器而不是别的服务)"
+                )
+                return False
+    except Exception as e:
+        logger.error(f"[小爱] HTTP 发送异常（{ONEBOT_API_URL} 不可达）: {e}")
+        return False
+
+
+async def send_text_to_group(group_id, text: str, bot: Optional["Bot"] = None) -> bool:
+    """发送群消息。
+
+    优先复用 gsuid_core 的 Bot 通道（也就是你 NapCat -> WS 的那条连接），
+    这样不依赖任何额外端口，也不会出现 404。拿不到 Bot 时才回退到 HTTP。
+    """
+    key = str(group_id)
+    use_bot = bot or _group_bots.get(key)
+
+    if use_bot is not None:
+        try:
+            await use_bot.target_send(text, "group", key)
+            logger.info(f"[小爱] 已向群 {key} 发送文字: {text}")
+            return True
+        except Exception as e:
+            logger.error(f"[小爱] 通过 Bot 发送失败: {e}")
+
+    if ONEBOT_API_URL:
+        return await _send_via_onebot_http(key, text)
+
+    logger.error(
+        f"[小爱] 群 {key} 没有可用的 Bot 连接，消息未发出。"
+        "请确认 NapCat 已连上 gsuid_core（WS），且该群有收到过消息。"
+    )
+    return False
 
 # ==================== 主动回复后台任务 ====================
 async def active_reply_loop():
@@ -368,98 +451,113 @@ async def active_reply_loop():
     logger.info(f"[小爱] 智能后台任务 v4.1 已启动，每 {ACTIVE_CONFIG['check_interval']} 秒检查一次")
 
     while True:
-        logger.debug("[小爱] 主动检查循环执行")
-        await asyncio.sleep(ACTIVE_CONFIG["check_interval"])
-        if not ACTIVE_CONFIG["enable"]:
-            continue
-
-        now = time.time()
-        for group_id, cache in list(group_cache.items()):
-            msgs = list(cache["msgs"])
-            if not msgs:
+        try:
+            logger.debug("[小爱] 主动检查循环执行")
+            await asyncio.sleep(ACTIVE_CONFIG["check_interval"])
+            if not ACTIVE_CONFIG["enable"]:
                 continue
 
-            # 冷场检测
-            if now - cache["last_active"] > ACTIVE_CONFIG["silence_limit"]:
-                continue
-            if now - cache["last_reply"] < ACTIVE_CONFIG["cooldown"]:
-                continue
-
-            # 检查最近一条消息是否包含“小爱”（快速响应）
-            last_msg = msgs[-1]["text"].lower()
-            quick_response = "小爱" in last_msg
-
-            # 如果是游戏话题，也视为快速响应（提高触发）
-            is_game = any(kw in last_msg for kw in GAME_KEYWORDS)
-
-            # 如果不是快速响应，执行原有的消息数量检查和关键词粗筛
-            if not quick_response and not is_game:
-                if len(msgs) < ACTIVE_CONFIG["min_messages"]:
-                    continue
-                recent_text = " ".join([m["text"] for m in msgs[-5:]])
-                if not any(k in recent_text for k in GAME_KEYWORDS + ACTIVE_CONFIG["question_keywords"]):
-                    logger.debug(f"[小爱] 群 {group_id} 关键词粗筛未通过")
+            now = time.time()
+            for group_id, cache in list(group_cache.items()):
+                msgs = list(cache["msgs"])
+                if not msgs:
                     continue
 
-            # 意图判断
-            if quick_response or is_game:
-                # 快速响应也使用较高的临时阈值，但比普通稍低
-                temp_threshold = 0.6  # 原0.3，提高到0.6
-                should_reply, reason, confidence = await check_reply_intent(msgs)
-                if not should_reply or confidence < temp_threshold:
-                    logger.debug(f"[小爱] 群 {group_id} 快速响应意图判断不通过: {reason} (conf={confidence})")
+                # 冷场检测
+                if now - cache["last_active"] > ACTIVE_CONFIG["silence_limit"]:
                     continue
-            else:
-                should_reply, reason, confidence = await check_reply_intent(msgs)
-                if not should_reply or confidence < ACTIVE_CONFIG["intent_confidence_threshold"]:
-                    logger.debug(f"[小爱] 群 {group_id} 意图判断不通过: {reason} (conf={confidence})")
+                if now - cache["last_reply"] < ACTIVE_CONFIG["cooldown"]:
                     continue
 
-            logger.info(f"[小爱] 群 {group_id} 意图通过: {reason} (conf={confidence:.2f})")
+                # 检查最近一条消息是否包含“小爱”（快速响应）
+                last_msg = msgs[-1]["text"].lower()
+                quick_response = "小爱" in last_msg
 
-            # 生成对话摘要
-            summary = await summarize_conversation(msgs)
-            logger.debug(f"[小爱] 对话摘要: {summary}")
+                # 如果是游戏话题，也视为快速响应（提高触发）
+                is_game = any(kw in last_msg for kw in GAME_KEYWORDS)
 
-            # 生成回复
-            reply = await generate_reply_with_context(msgs, reason, summary)
-            if not reply:
-                continue
+                # 如果不是快速响应，执行消息数量检查、关键词粗筛和概率判定
+                if not quick_response and not is_game:
+                    if len(msgs) < ACTIVE_CONFIG["min_messages"]:
+                        continue
+                    recent_text = " ".join([m["text"] for m in msgs[-5:]])
+                    if not any(k in recent_text for k in GAME_KEYWORDS + ACTIVE_CONFIG["question_keywords"]):
+                        logger.debug(f"[小爱] 群 {group_id} 关键词粗筛未通过")
+                        continue
+                    # 普通话题按 base_trigger_prob 概率插话，避免刷屏
+                    if random.random() > ACTIVE_CONFIG["base_trigger_prob"]:
+                        continue
 
-            # 质量评分
-            quality = await evaluate_reply_quality(reply, summary, msgs)
-            if quality < ACTIVE_CONFIG["quality_threshold"]:
-                logger.info(f"[小爱] 回复质量过低 ({quality:.2f})，放弃: {reply}")
-                continue
+                # 意图判断
+                if quick_response or is_game:
+                    # 快速响应也使用较高的临时阈值，但比普通稍低
+                    temp_threshold = 0.6
+                    should_reply, reason, confidence = await check_reply_intent(msgs)
+                    if not should_reply or confidence < temp_threshold:
+                        logger.debug(f"[小爱] 群 {group_id} 快速响应意图判断不通过: {reason} (conf={confidence})")
+                        continue
+                else:
+                    should_reply, reason, confidence = await check_reply_intent(msgs)
+                    if not should_reply or confidence < ACTIVE_CONFIG["intent_confidence_threshold"]:
+                        logger.debug(f"[小爱] 群 {group_id} 意图判断不通过: {reason} (conf={confidence})")
+                        continue
 
-            # 语义重复检测
-            if is_semantic_duplicate(reply, recent_replies):
-                logger.info(f"[小爱] 回复语义重复，跳过: {reply}")
-                continue
+                logger.info(f"[小爱] 群 {group_id} 意图通过: {reason} (conf={confidence:.2f})")
 
-            # 同一话题冷却
-            current_topic = None
-            for kw in GAME_KEYWORDS:
-                if kw in reply:
-                    current_topic = kw
-                    break
-            if current_topic and cache.get("last_topic") == current_topic:
-                if now - cache["last_reply"] < ACTIVE_CONFIG["same_topic_cooldown"]:
-                    logger.info(f"[小爱] 同一话题[{current_topic}]短时间内重复，跳过")
+                # 生成对话摘要
+                summary = await summarize_conversation(msgs)
+                logger.debug(f"[小爱] 对话摘要: {summary}")
+                # 生成回复
+                reply = await generate_reply_with_context(msgs, reason, summary)
+                if not reply:
                     continue
 
-            # 发送
-            logger.info(f"[小爱] 决定回复: {reply} (质量={quality:.2f})")
-            await send_text_to_group(group_id, reply)
-            cache["last_reply"] = now
-            cache["last_topic"] = current_topic if current_topic else ""
-            recent_replies.append(reply)
+                # 质量评分
+                quality = await evaluate_reply_quality(reply, summary, msgs)
+                if quality < ACTIVE_CONFIG["quality_threshold"]:
+                    logger.info(f"[小爱] 回复质量过低 ({quality:.2f})，放弃: {reply}")
+                    continue
+
+                # 语义重复检测
+                if is_semantic_duplicate(reply, recent_replies):
+                    logger.info(f"[小爱] 回复语义重复，跳过: {reply}")
+                    continue
+
+                # 同一话题冷却
+                current_topic = None
+                for kw in GAME_KEYWORDS:
+                    if kw in reply:
+                        current_topic = kw
+                        break
+                if current_topic and cache.get("last_topic") == current_topic:
+                    if now - cache["last_reply"] < ACTIVE_CONFIG["same_topic_cooldown"]:
+                        logger.info(f"[小爱] 同一话题[{current_topic}]短时间内重复，跳过")
+                        continue
+
+                # 发送
+                logger.info(f"[小爱] 决定回复: {reply} (质量={quality:.2f})")
+                sent = await send_text_to_group(group_id, reply)
+                if sent:
+                    cache["last_reply"] = now
+                    cache["last_topic"] = current_topic if current_topic else ""
+                    recent_replies.append(reply)
+        except Exception as e:
+            # 兜底：任何异常都不应该让后台任务挂掉
+            logger.error(f"[小爱] 主动回复循环出现异常（已忽略，继续运行）: {e}")
+            await asyncio.sleep(ACTIVE_CONFIG["check_interval"])
 
 # ==================== 消息监听 ====================
 @sv.on_message()
 async def handle_message(bot: Bot, event: Event):
     if event.user_type == "direct":
         return
+    if not event.group_id:
+        return
+    # 如果插件加载时没有事件循环，后台任务会在这里补启动
+    start_task_if_not()
+
+    # 记录当前群可用的 Bot，后台主动发言要用它发消息
+    remember_bot(event.group_id, bot)
 
     user_name = event.sender.get("nickname", "未知用户") if event.sender else "未知用户"
     add_to_cache(
@@ -481,8 +579,8 @@ async def handle_message(bot: Bot, event: Event):
         reply = await generate_at_reply(msgs, event.text.strip(), user_name)
         if reply:
             logger.info(f"[小爱] 被@回复: {reply}")
-            await send_text_to_group(event.group_id, reply)
-            if cache:
+            sent = await send_text_to_group(event.group_id, reply)
+            if sent and cache:
                 cache["last_at_reply"] = now
         else:
             logger.warning("[小爱] 被@回复生成失败")
@@ -492,9 +590,16 @@ _task_started = False
 
 def start_task_if_not():
     global _task_started
-    if not _task_started:
-        _task_started = True
-        asyncio.create_task(active_reply_loop())
-        logger.info("[小爱] 智能后台任务 v4.1 已启动")
+    if _task_started:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # 插件被导入时可能还没有事件循环，等收到第一条消息时再启动
+        logger.debug("[小爱] 暂无事件循环，后台任务将延迟启动")
+        return
+    _task_started = True
+    loop.create_task(active_reply_loop())
+    logger.info("[小爱] 智能后台任务 v4.2 已启动")
 
 start_task_if_not()

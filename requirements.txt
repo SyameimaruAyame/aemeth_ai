@@ -1,2 +1,5 @@
+# aemeth_ai 运行时依赖
+# 说明：gsuid_core 及其子模块（gsuid_core.sv / gsuid_core.bot 等）由早柚核心本体提供，
+#      不需要在这里重复声明；插件放进 gsuid_core/gsuid_core/plugins 即可被加载。
+#      其余均为 Python 标准库（asyncio / json / difflib / collections 等），无需安装。
 aiohttp>=3.8.0
-dashscope>=1.0.0
